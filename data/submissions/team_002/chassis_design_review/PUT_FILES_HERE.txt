@@ -1,0 +1,8 @@
+Drop this team's files here, named to match the rubric's required_views:
+    front.png
+    top.png
+    side.png
+    iso.png
+    model.stl   (optional - enables automatic dimension/weight checking)
+
+Then delete this placeholder file.

@@ -1,0 +1,41 @@
+{
+  "activity_id": "aero_report_q3",
+  "type": "text",
+  "title": "Aerodynamics Justification",
+  "question": "Explain why your team chose this nose cone shape and how it reduces drag on the CO2-powered car.",
+  "max_score": 10,
+  "criteria": [
+    {
+      "name": "Technical accuracy",
+      "weight": 4,
+      "description": "Correctly explains drag-reduction principles (frontal area, laminar flow, boundary layer separation, etc.) without factual errors."
+    },
+    {
+      "name": "Relevance to their design",
+      "weight": 3,
+      "description": "Explanation is actually connected to the specific nose cone shape they chose, not generic textbook text."
+    },
+    {
+      "name": "Clarity & structure",
+      "weight": 3,
+      "description": "Answer is organized and easy to follow, with reasoning stated explicitly rather than implied."
+    }
+  ],
+  "reference_answers": [
+    {
+      "band": "excellent",
+      "score_range": [9, 10],
+      "example": "We chose a parabolic (Von Karman-like) nose cone rather than a cone or ogive because our target speed range is low-to-moderate, where a parabolic profile minimizes pressure drag by keeping the airflow attached longer before it separates near the widest cross-section. We 3D-printed a 40mm-long profile with a smooth curvature (no sharp transition to the body) so there's no abrupt frontal area increase that would create a high-pressure zone and turbulent wake, which we confirmed reduced our coast-down deceleration compared to our earlier conical prototype."
+    },
+    {
+      "band": "average",
+      "score_range": [5, 6],
+      "example": "We made the front of the car pointy because pointy shapes are more aerodynamic and go through the air easier than flat shapes. This helps reduce drag so the car can go faster when the CO2 cylinder fires."
+    },
+    {
+      "band": "poor",
+      "score_range": [0, 2],
+      "example": "Aerodynamics is when air moves around the car. We wanted our car to be fast so we made it aerodynamic. Our car looks cool and sleek."
+    }
+  ]
+}

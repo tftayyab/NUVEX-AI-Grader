@@ -1,0 +1,7 @@
+# Core -- needed regardless of which provider you use
+trimesh>=4.0.0
+numpy>=1.24.0
+Pillow>=10.0.0
+
+# Paid provider (--provider anthropic, the default)
+anthropic>=0.40.0

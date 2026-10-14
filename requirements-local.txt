@@ -1,0 +1,4 @@
+# Free provider (--provider local) -- install this INSTEAD of/ALONGSIDE the
+# anthropic line in requirements.txt if you want zero API cost.
+# You also need the Ollama app installed separately: https://ollama.com/download
+ollama>=0.4.0

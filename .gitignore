@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+results.json
+results.csv
+
+# Web
+web/server/node_modules/
+web/client/node_modules/
+web/client/dist/
+web/server/uploads/*
+!web/server/uploads/.gitkeep
+web/server/.env
+web/client/.env
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

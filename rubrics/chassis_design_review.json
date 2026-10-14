@@ -1,0 +1,21 @@
+{
+  "activity_id": "chassis_design_review",
+  "type": "cad_review",
+  "title": "Chassis & CO2 Mount Design Review",
+  "max_score": 20,
+  "required_views": ["front", "top", "side", "iso"],
+  "criteria": [
+    {"name": "Standard orthographic projection followed", "weight": 3},
+    {"name": "Dimensioning & labeling present and correct", "weight": 4},
+    {"name": "CO2 cylinder mount design soundness", "weight": 5},
+    {"name": "Aerodynamic profile reasoning", "weight": 4},
+    {"name": "Manufacturability / structural feasibility", "weight": 4}
+  ],
+  "geometry_constraints": {
+    "max_length_mm": 210,
+    "max_width_mm": 70,
+    "max_weight_g": 60,
+    "material_density_g_cm3": 1.2
+  },
+  "reference_notes": "Good designs typically show a tapered, smoothly-curved nose (no abrupt frontal area step), symmetric wheel wells cut cleanly through the body, and a rear-mounted cylinder channel sized close to a 16g CO2 cartridge (nominal diameter ~16.3mm, length ~68mm) with a visible retention/seal feature. Weak designs are boxy with a flat front face, have wheel wells that look hand-hacked and asymmetric, or show a cylinder channel with no clear retention method."
+}
