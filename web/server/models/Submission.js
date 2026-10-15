@@ -10,15 +10,22 @@ const fileSchema = new mongoose.Schema(
   { _id: false }
 );
 
-const submissionSchema = new mongoose.Schema(
+const answerSchema = new mongoose.Schema(
   {
-    studentName: { type: String, required: true },
-    studentId: { type: String, default: "" },
-    textAnswer: { type: String, required: true },
+    questionId: { type: mongoose.Schema.Types.ObjectId, required: true },
+    textAnswer: { type: String, default: "" },
     images: { type: [fileSchema], default: [] },
     cadFile: { type: fileSchema, default: null },
-    // Linked when an admin assigns this submission into a Test
-    testId: { type: mongoose.Schema.Types.ObjectId, ref: "Test", default: null },
+  },
+  { _id: false }
+);
+
+const submissionSchema = new mongoose.Schema(
+  {
+    testId: { type: mongoose.Schema.Types.ObjectId, ref: "Test", required: true },
+    studentName: { type: String, required: true },
+    studentId: { type: String, default: "" },
+    answers: { type: [answerSchema], default: [] },
   },
   { timestamps: true }
 );

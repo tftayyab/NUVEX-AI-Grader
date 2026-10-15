@@ -2,7 +2,7 @@
 
 ## Web UI (student submit + admin Tests)
 
-New folder: [`web/`](web/). Students submit text + images (CAD optional via env). Admins multi-select submissions into a **Test** and attach one Excel answer key.
+New folder: [`web/`](web/). Admins **build a Test** (questions + expected answer points with marks). Students pick that Test and submit; each submission stores the Test id. CAD optional via `ENABLE_CAD`.
 
 On a new Windows PC:
 

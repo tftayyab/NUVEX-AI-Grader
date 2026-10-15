@@ -4,27 +4,24 @@ React frontend + Express/MongoDB API for collecting student work and grouping it
 
 ## Word we use: **Test**
 
-A **Test** is the unit that ties things together:
+A **Test** is authored in Admin (no Excel):
 
-- You select many student **Submissions**
-- You attach **one Excel/CSV answer key** (same expected answers for everyone in that group)
-- You can create **many different Tests** (different cohorts / different keys)
+- Name + questions (`text` | `image` | `cad`)
+- Each question: **prompt** + one or more **expected answer points** (text + **marks**)
+- Use **+ Add answer point** to attach several criteria with different marks to the same question
 
-Later, grading will run per Test: student answers vs that Test’s expected answers.
+Students pick a Test → submit → every **Submission** stores that **test id** so grading knows which key to use.
 
 ## What students see (`/`)
 
-1. Short “Start” intro  
-2. Text answer  
-3. Image upload(s)  
-4. CAD upload — **only if** `ENABLE_CAD=true` in `server/.env` (default **off** so you can test text + pics first)
+1. Select an available Test  
+2. Answer each question (text / images / CAD if enabled)  
+3. Submit (linked to that Test’s id)
 
 ## What admins see (`/admin`)
 
-- List submissions (filter unassigned)
-- Multi-select
-- Create a **Test** + upload Excel answer key (`question` / `answer` columns — see `sample-answer-key.csv`)
-- Browse existing Tests and their expected-answer rows
+- **Build Test** — question builder with marks points  
+- **Submissions** — filter by Test
 
 ## New PC setup (Windows CMD)
 

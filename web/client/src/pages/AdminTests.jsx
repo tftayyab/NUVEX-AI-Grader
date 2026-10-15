@@ -1,80 +1,128 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { createTest, listSubmissions, listTests, uploadUrl } from "../api";
+import { createTest, getConfig, listSubmissions, listTests, uploadUrl } from "../api";
+
+function emptyPoint() {
+  return { text: "", marks: 1 };
+}
+
+function emptyQuestion() {
+  return {
+    type: "text",
+    prompt: "",
+    expectedPoints: [emptyPoint()],
+    _key: crypto.randomUUID(),
+  };
+}
 
 export default function AdminTests() {
-  const [submissions, setSubmissions] = useState([]);
+  const [enableCad, setEnableCad] = useState(false);
+  const [tab, setTab] = useState("build"); // build | submissions
   const [tests, setTests] = useState([]);
-  const [selected, setSelected] = useState(() => new Set());
-  const [onlyUnassigned, setOnlyUnassigned] = useState(true);
-  const [testName, setTestName] = useState("");
-  const [description, setDescription] = useState("");
-  const [answerKey, setAnswerKey] = useState(null);
-  const [status, setStatus] = useState({ type: "", message: "" });
-  const [busy, setBusy] = useState(false);
+  const [submissions, setSubmissions] = useState([]);
+  const [filterTestId, setFilterTestId] = useState("");
   const [activeTestId, setActiveTestId] = useState(null);
 
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [questions, setQuestions] = useState([emptyQuestion()]);
+  const [status, setStatus] = useState({ type: "", message: "" });
+  const [busy, setBusy] = useState(false);
+
   async function refresh() {
-    const params = onlyUnassigned ? { unassigned: "true" } : {};
-    const [subs, ts] = await Promise.all([listSubmissions(params), listTests()]);
-    setSubmissions(subs);
+    const [ts, subs] = await Promise.all([
+      listTests(),
+      listSubmissions(filterTestId ? { testId: filterTestId } : {}),
+    ]);
     setTests(ts);
+    setSubmissions(subs);
   }
 
   useEffect(() => {
-    refresh().catch((err) => setStatus({ type: "err", message: err.message }));
-  }, [onlyUnassigned]);
+    getConfig()
+      .then((c) => setEnableCad(Boolean(c.enableCad)))
+      .catch(() => setEnableCad(false));
+  }, []);
 
-  const allSelected = useMemo(
-    () => submissions.length > 0 && submissions.every((s) => selected.has(s._id)),
-    [submissions, selected]
+  useEffect(() => {
+    refresh().catch((err) => setStatus({ type: "err", message: err.message }));
+  }, [filterTestId]);
+
+  const activeTest = useMemo(
+    () => tests.find((t) => t._id === activeTestId) || null,
+    [tests, activeTestId]
   );
 
-  function toggleOne(id) {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+  function updateQuestion(index, patch) {
+    setQuestions((prev) => prev.map((q, i) => (i === index ? { ...q, ...patch } : q)));
   }
 
-  function toggleAll() {
-    if (allSelected) setSelected(new Set());
-    else setSelected(new Set(submissions.map((s) => s._id)));
+  function updatePoint(qIndex, pIndex, patch) {
+    setQuestions((prev) =>
+      prev.map((q, i) => {
+        if (i !== qIndex) return q;
+        const expectedPoints = q.expectedPoints.map((p, j) =>
+          j === pIndex ? { ...p, ...patch } : p
+        );
+        return { ...q, expectedPoints };
+      })
+    );
+  }
+
+  function addPoint(qIndex) {
+    setQuestions((prev) =>
+      prev.map((q, i) =>
+        i === qIndex ? { ...q, expectedPoints: [...q.expectedPoints, emptyPoint()] } : q
+      )
+    );
+  }
+
+  function removePoint(qIndex, pIndex) {
+    setQuestions((prev) =>
+      prev.map((q, i) => {
+        if (i !== qIndex) return q;
+        if (q.expectedPoints.length <= 1) return q;
+        return {
+          ...q,
+          expectedPoints: q.expectedPoints.filter((_, j) => j !== pIndex),
+        };
+      })
+    );
+  }
+
+  function addQuestion() {
+    setQuestions((prev) => [...prev, emptyQuestion()]);
+  }
+
+  function removeQuestion(index) {
+    setQuestions((prev) => (prev.length <= 1 ? prev : prev.filter((_, i) => i !== index)));
   }
 
   async function onCreateTest(e) {
     e.preventDefault();
     setStatus({ type: "", message: "" });
-
-    if (selected.size === 0) {
-      setStatus({ type: "err", message: "Select at least one submission." });
-      return;
-    }
-    if (!answerKey) {
-      setStatus({ type: "err", message: "Upload an Excel answer key." });
-      return;
-    }
-
     setBusy(true);
     try {
-      const fd = new FormData();
-      fd.append("name", testName);
-      fd.append("description", description);
-      fd.append("submissionIds", JSON.stringify([...selected]));
-      fd.append("answerKey", answerKey);
-
-      const created = await createTest(fd);
+      const payload = {
+        name,
+        description,
+        questions: questions.map(({ type, prompt, expectedPoints }) => ({
+          type,
+          prompt,
+          expectedPoints: expectedPoints.map((p) => ({
+            text: p.text,
+            marks: Number(p.marks),
+          })),
+        })),
+      };
+      const created = await createTest(payload);
       setStatus({
         type: "ok",
-        message: `Test "${created.name}" created with ${created.submissionIds.length} submission(s).`,
+        message: `Test "${created.name}" saved. Students can open it from the Student page.`,
       });
-      setTestName("");
+      setName("");
       setDescription("");
-      setAnswerKey(null);
-      setSelected(new Set());
-      e.target.reset();
+      setQuestions([emptyQuestion()]);
       await refresh();
       setActiveTestId(created._id);
     } catch (err) {
@@ -84,10 +132,8 @@ export default function AdminTests() {
     }
   }
 
-  const activeTest = tests.find((t) => t._id === activeTestId) || null;
-
   return (
-    <div className="page">
+    <div className="page wide">
       <header className="topbar">
         <strong>NUVEX AI Grader</strong>
         <nav>
@@ -96,152 +142,251 @@ export default function AdminTests() {
         </nav>
       </header>
 
-      <main className="admin-grid">
-        <section className="panel">
+      <div className="tabs">
+        <button
+          type="button"
+          className={tab === "build" ? "tab on" : "tab"}
+          onClick={() => setTab("build")}
+        >
+          Build Test
+        </button>
+        <button
+          type="button"
+          className={tab === "submissions" ? "tab on" : "tab"}
+          onClick={() => setTab("submissions")}
+        >
+          Submissions
+        </button>
+      </div>
+
+      {tab === "build" && (
+        <main className="admin-grid">
+          <section className="panel">
+            <h1>New Test</h1>
+            <p className="lead">
+              Add questions (text, image{enableCad ? ", or CAD" : ""}). For each question, write
+              expected answer points and marks. Use <strong>+</strong> to add more points under the
+              same question (e.g. 3 different criteria with different marks).
+            </p>
+            {!enableCad && (
+              <p className="muted small">CAD question type is hidden until ENABLE_CAD=true.</p>
+            )}
+
+            <form className="form" onSubmit={onCreateTest}>
+              <label>
+                Test name
+                <input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  required
+                  placeholder="e.g. Chassis design review"
+                />
+              </label>
+              <label>
+                Description (optional)
+                <textarea
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  rows={2}
+                  placeholder="Shown to students"
+                />
+              </label>
+
+              {questions.map((q, qi) => (
+                <div className="q-card" key={q._key}>
+                  <div className="row-between">
+                    <h3>Question {qi + 1}</h3>
+                    <button
+                      type="button"
+                      className="ghost danger"
+                      onClick={() => removeQuestion(qi)}
+                      disabled={questions.length <= 1}
+                    >
+                      Remove
+                    </button>
+                  </div>
+
+                  <label>
+                    Type
+                    <select
+                      value={q.type}
+                      onChange={(e) => updateQuestion(qi, { type: e.target.value })}
+                    >
+                      <option value="text">Text</option>
+                      <option value="image">Image</option>
+                      {enableCad && <option value="cad">CAD</option>}
+                    </select>
+                  </label>
+
+                  <label>
+                    Question prompt
+                    <textarea
+                      value={q.prompt}
+                      onChange={(e) => updateQuestion(qi, { prompt: e.target.value })}
+                      required
+                      rows={3}
+                      placeholder="What should the student do / answer?"
+                    />
+                  </label>
+
+                  <div className="points-block">
+                    <div className="row-between">
+                      <strong>Expected answer points</strong>
+                      <button type="button" className="ghost" onClick={() => addPoint(qi)}>
+                        + Add answer point
+                      </button>
+                    </div>
+                    <p className="muted small">
+                      Each row is one thing you expect to see, with its own marks.
+                    </p>
+                    {q.expectedPoints.map((p, pi) => (
+                      <div className="point-row" key={pi}>
+                        <input
+                          className="grow"
+                          value={p.text}
+                          onChange={(e) => updatePoint(qi, pi, { text: e.target.value })}
+                          required
+                          placeholder="Expected answer / criterion"
+                        />
+                        <input
+                          className="marks"
+                          type="number"
+                          min="0"
+                          step="0.5"
+                          value={p.marks}
+                          onChange={(e) => updatePoint(qi, pi, { marks: e.target.value })}
+                          required
+                          title="Marks"
+                          aria-label="Marks"
+                        />
+                        <button
+                          type="button"
+                          className="ghost"
+                          onClick={() => removePoint(qi, pi)}
+                          disabled={q.expectedPoints.length <= 1}
+                        >
+                          −
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+
+              <button type="button" className="ghost" onClick={addQuestion}>
+                + Add question
+              </button>
+
+              <button type="submit" disabled={busy}>
+                {busy ? "Saving..." : "Save Test"}
+              </button>
+            </form>
+
+            {status.message && (
+              <p className={status.type === "ok" ? "msg ok" : "msg err"}>{status.message}</p>
+            )}
+          </section>
+
+          <aside className="side">
+            <section className="panel">
+              <h2>Existing Tests</h2>
+              <ul className="test-list">
+                {tests.length === 0 && <li className="muted">None yet — create one.</li>}
+                {tests.map((t) => (
+                  <li key={t._id}>
+                    <button type="button" className="linkish" onClick={() => setActiveTestId(t._id)}>
+                      {t.name}
+                    </button>
+                    <span className="muted small">
+                      {" "}
+                      · {t.questions?.length || 0} Q · {t.totalMarks ?? "?"} marks
+                    </span>
+                    <div className="muted small mono">id: {t._id}</div>
+                  </li>
+                ))}
+              </ul>
+
+              {activeTest && (
+                <div className="test-detail">
+                  <h3>{activeTest.name}</h3>
+                  {activeTest.description && <p>{activeTest.description}</p>}
+                  <ol className="q-preview">
+                    {activeTest.questions?.map((q, i) => (
+                      <li key={q._id || i}>
+                        <strong>
+                          [{q.type}] {q.prompt}
+                        </strong>
+                        <ul>
+                          {q.expectedPoints?.map((p, j) => (
+                            <li key={j} className="muted">
+                              {p.text} — <em>{p.marks} marks</em>
+                            </li>
+                          ))}
+                        </ul>
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              )}
+            </section>
+          </aside>
+        </main>
+      )}
+
+      {tab === "submissions" && (
+        <main className="panel">
           <div className="row-between">
             <h1>Submissions</h1>
             <label className="inline">
-              <input
-                type="checkbox"
-                checked={onlyUnassigned}
-                onChange={(e) => {
-                  setOnlyUnassigned(e.target.checked);
-                  setSelected(new Set());
-                }}
-              />
-              Unassigned only
+              Filter by test
+              <select value={filterTestId} onChange={(e) => setFilterTestId(e.target.value)}>
+                <option value="">All tests</option>
+                {tests.map((t) => (
+                  <option key={t._id} value={t._id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
             </label>
           </div>
-          <p className="lead">
-            Select submissions, then create a <strong>Test</strong> — one shared Excel answer key
-            for the whole group. Different Tests can have different keys.
-          </p>
-
-          <div className="row-between">
-            <button type="button" className="ghost" onClick={toggleAll}>
-              {allSelected ? "Clear selection" : "Select all"}
-            </button>
-            <span className="muted">{selected.size} selected</span>
-          </div>
+          <p className="lead">Each submission is linked to a Test id for grading against that key.</p>
 
           <ul className="sub-list">
             {submissions.length === 0 && <li className="muted">No submissions yet.</li>}
             {submissions.map((s) => (
-              <li key={s._id} className={selected.has(s._id) ? "picked" : ""}>
-                <label className="sub-row">
-                  <input
-                    type="checkbox"
-                    checked={selected.has(s._id)}
-                    onChange={() => toggleOne(s._id)}
-                  />
-                  <div>
-                    <div className="sub-title">
-                      {s.studentName}
-                      {s.studentId ? ` · ${s.studentId}` : ""}
-                    </div>
-                    <div className="muted small">
-                      {new Date(s.createdAt).toLocaleString()} · {s.images?.length || 0} image(s)
-                      {s.cadFile ? " · CAD" : ""}
-                      {s.testId ? " · already in a Test" : ""}
-                    </div>
-                    <p className="preview">{s.textAnswer}</p>
-                    {s.images?.length > 0 && (
+              <li key={s._id}>
+                <div className="sub-title">
+                  {s.studentName}
+                  {s.studentId ? ` · ${s.studentId}` : ""}
+                </div>
+                <div className="muted small">
+                  {new Date(s.createdAt).toLocaleString()} · Test:{" "}
+                  {s.testId?.name || s.testId || "?"} · {s.answers?.length || 0} answer(s)
+                </div>
+                {(s.answers || []).map((a, i) => (
+                  <div key={i} className="answer-block">
+                    {a.textAnswer && <p className="preview">{a.textAnswer}</p>}
+                    {a.images?.length > 0 && (
                       <div className="thumbs">
-                        {s.images.map((img) => (
+                        {a.images.map((img) => (
                           <a key={img.filename} href={uploadUrl(img.path)} target="_blank" rel="noreferrer">
                             <img src={uploadUrl(img.path)} alt={img.originalName} />
                           </a>
                         ))}
                       </div>
                     )}
+                    {a.cadFile && (
+                      <a href={uploadUrl(a.cadFile.path)} target="_blank" rel="noreferrer">
+                        CAD: {a.cadFile.originalName}
+                      </a>
+                    )}
                   </div>
-                </label>
+                ))}
               </li>
             ))}
           </ul>
-        </section>
-
-        <aside className="side">
-          <section className="panel">
-            <h2>Create a Test</h2>
-            <p className="muted small">
-              Excel columns: <code>question</code> and <code>answer</code> (or similar names).
-              Row 1 = Q1, row 2 = Q2, …
-            </p>
-            <form className="form" onSubmit={onCreateTest}>
-              <label>
-                Test name
-                <input
-                  value={testName}
-                  onChange={(e) => setTestName(e.target.value)}
-                  required
-                  placeholder="e.g. Aero Q3 — Friday cohort"
-                />
-              </label>
-              <label>
-                Notes (optional)
-                <textarea
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  rows={3}
-                  placeholder="Anything graders should know"
-                />
-              </label>
-              <label>
-                Answer key Excel
-                <input
-                  type="file"
-                  accept=".xlsx,.xls,.csv"
-                  required
-                  onChange={(e) => setAnswerKey(e.target.files?.[0] || null)}
-                />
-              </label>
-              <button type="submit" disabled={busy}>
-                {busy ? "Creating..." : `Create Test (${selected.size})`}
-              </button>
-            </form>
-            {status.message && (
-              <p className={status.type === "ok" ? "msg ok" : "msg err"}>{status.message}</p>
-            )}
-          </section>
-
-          <section className="panel">
-            <h2>Existing Tests</h2>
-            <ul className="test-list">
-              {tests.length === 0 && <li className="muted">None yet.</li>}
-              {tests.map((t) => (
-                <li key={t._id}>
-                  <button type="button" className="linkish" onClick={() => setActiveTestId(t._id)}>
-                    {t.name}
-                  </button>
-                  <span className="muted small">
-                    {" "}
-                    · {Array.isArray(t.submissionIds) ? t.submissionIds.length : 0} submissions ·{" "}
-                    {t.expectedAnswers?.length || 0} answer rows
-                  </span>
-                </li>
-              ))}
-            </ul>
-
-            {activeTest && (
-              <div className="test-detail">
-                <h3>{activeTest.name}</h3>
-                {activeTest.description && <p>{activeTest.description}</p>}
-                <h4>Expected answers</h4>
-                <ol>
-                  {activeTest.expectedAnswers?.map((row) => (
-                    <li key={row.questionNumber}>
-                      <strong>Q{row.questionNumber}:</strong> {row.question || "(no question text)"}
-                      <br />
-                      <span className="muted">Expected: {row.expectedAnswer || "(empty)"}</span>
-                    </li>
-                  ))}
-                </ol>
-              </div>
-            )}
-          </section>
-        </aside>
-      </main>
+        </main>
+      )}
     </div>
   );
 }

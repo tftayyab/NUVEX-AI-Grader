@@ -10,6 +10,29 @@ export async function getConfig() {
   return handle(await fetch(`${API_BASE}/api/config`));
 }
 
+export async function listTests() {
+  return handle(await fetch(`${API_BASE}/api/tests`));
+}
+
+export async function getTest(id) {
+  return handle(await fetch(`${API_BASE}/api/tests/${id}`));
+}
+
+/** Prompts only — no expected answers (for students). */
+export async function getTestForTake(id) {
+  return handle(await fetch(`${API_BASE}/api/tests/${id}/take`));
+}
+
+export async function createTest(payload) {
+  return handle(
+    await fetch(`${API_BASE}/api/tests`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    })
+  );
+}
+
 export async function createSubmission(formData) {
   return handle(
     await fetch(`${API_BASE}/api/submissions`, {
@@ -22,19 +45,6 @@ export async function createSubmission(formData) {
 export async function listSubmissions(params = {}) {
   const qs = new URLSearchParams(params).toString();
   return handle(await fetch(`${API_BASE}/api/submissions${qs ? `?${qs}` : ""}`));
-}
-
-export async function listTests() {
-  return handle(await fetch(`${API_BASE}/api/tests`));
-}
-
-export async function createTest(formData) {
-  return handle(
-    await fetch(`${API_BASE}/api/tests`, {
-      method: "POST",
-      body: formData,
-    })
-  );
 }
 
 export function uploadUrl(path) {
