@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { createTest, getConfig, listSubmissions, listTests, uploadUrl } from "../api";
+import { createTest, getConfig, getGrader, listSubmissions, listTests } from "../api";
+import AdminResults from "./AdminResults";
+import AdminTestsLibrary from "./AdminTestsLibrary";
 
 function emptyPoint() {
   return { text: "", marks: 1 };
@@ -17,11 +19,11 @@ function emptyQuestion() {
 
 export default function AdminTests() {
   const [enableCad, setEnableCad] = useState(false);
-  const [tab, setTab] = useState("build"); // build | submissions
+  const [grader, setGrader] = useState(null);
+  const [tab, setTab] = useState("results"); // tests | results | build
   const [tests, setTests] = useState([]);
   const [submissions, setSubmissions] = useState([]);
   const [filterTestId, setFilterTestId] = useState("");
-  const [activeTestId, setActiveTestId] = useState(null);
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -30,10 +32,7 @@ export default function AdminTests() {
   const [busy, setBusy] = useState(false);
 
   async function refresh() {
-    const [ts, subs] = await Promise.all([
-      listTests(),
-      listSubmissions(filterTestId ? { testId: filterTestId } : {}),
-    ]);
+    const [ts, subs] = await Promise.all([listTests(), listSubmissions()]);
     setTests(ts);
     setSubmissions(subs);
   }
@@ -42,16 +41,18 @@ export default function AdminTests() {
     getConfig()
       .then((c) => setEnableCad(Boolean(c.enableCad)))
       .catch(() => setEnableCad(false));
+    getGrader()
+      .then(setGrader)
+      .catch((err) => setGrader({ ok: false, error: err.message }));
   }, []);
 
   useEffect(() => {
     refresh().catch((err) => setStatus({ type: "err", message: err.message }));
-  }, [filterTestId]);
+  }, []);
 
-  const activeTest = useMemo(
-    () => tests.find((t) => t._id === activeTestId) || null,
-    [tests, activeTestId]
-  );
+  function onSubmissionUpdated(updated) {
+    setSubmissions((prev) => prev.map((s) => (s._id === updated._id ? updated : s)));
+  }
 
   function updateQuestion(index, patch) {
     setQuestions((prev) => prev.map((q, i) => (i === index ? { ...q, ...patch } : q)));
@@ -124,7 +125,7 @@ export default function AdminTests() {
       setDescription("");
       setQuestions([emptyQuestion()]);
       await refresh();
-      setActiveTestId(created._id);
+      setTab("tests");
     } catch (err) {
       setStatus({ type: "err", message: err.message });
     } finally {
@@ -143,21 +144,42 @@ export default function AdminTests() {
       </header>
 
       <div className="tabs">
+        <button type="button" className={tab === "tests" ? "tab on" : "tab"} onClick={() => setTab("tests")}>
+          Tests
+        </button>
         <button
           type="button"
-          className={tab === "build" ? "tab on" : "tab"}
-          onClick={() => setTab("build")}
+          className={tab === "results" ? "tab on" : "tab"}
+          onClick={() => setTab("results")}
         >
+          Results
+        </button>
+        <button type="button" className={tab === "build" ? "tab on" : "tab"} onClick={() => setTab("build")}>
           Build Test
         </button>
-        <button
-          type="button"
-          className={tab === "submissions" ? "tab on" : "tab"}
-          onClick={() => setTab("submissions")}
-        >
-          Submissions
-        </button>
       </div>
+
+      {tab === "tests" && (
+        <AdminTestsLibrary
+          tests={tests}
+          submissions={submissions}
+          onOpenResults={(id) => {
+            setFilterTestId(id);
+            setTab("results");
+          }}
+        />
+      )}
+
+      {tab === "results" && (
+        <AdminResults
+          tests={tests}
+          submissions={submissions}
+          grader={grader}
+          filterTestId={filterTestId}
+          onFilterTestId={setFilterTestId}
+          onUpdated={onSubmissionUpdated}
+        />
+      )}
 
       {tab === "build" && (
         <main className="admin-grid">
@@ -289,102 +311,22 @@ export default function AdminTests() {
 
           <aside className="side">
             <section className="panel">
-              <h2>Existing Tests</h2>
+              <h2>Recently saved</h2>
+              <p className="muted small">Full list lives under the Tests tab.</p>
               <ul className="test-list">
                 {tests.length === 0 && <li className="muted">None yet — create one.</li>}
-                {tests.map((t) => (
+                {tests.slice(0, 6).map((t) => (
                   <li key={t._id}>
-                    <button type="button" className="linkish" onClick={() => setActiveTestId(t._id)}>
-                      {t.name}
-                    </button>
+                    <strong>{t.name}</strong>
                     <span className="muted small">
                       {" "}
                       · {t.questions?.length || 0} Q · {t.totalMarks ?? "?"} marks
                     </span>
-                    <div className="muted small mono">id: {t._id}</div>
                   </li>
                 ))}
               </ul>
-
-              {activeTest && (
-                <div className="test-detail">
-                  <h3>{activeTest.name}</h3>
-                  {activeTest.description && <p>{activeTest.description}</p>}
-                  <ol className="q-preview">
-                    {activeTest.questions?.map((q, i) => (
-                      <li key={q._id || i}>
-                        <strong>
-                          [{q.type}] {q.prompt}
-                        </strong>
-                        <ul>
-                          {q.expectedPoints?.map((p, j) => (
-                            <li key={j} className="muted">
-                              {p.text} — <em>{p.marks} marks</em>
-                            </li>
-                          ))}
-                        </ul>
-                      </li>
-                    ))}
-                  </ol>
-                </div>
-              )}
             </section>
           </aside>
-        </main>
-      )}
-
-      {tab === "submissions" && (
-        <main className="panel">
-          <div className="row-between">
-            <h1>Submissions</h1>
-            <label className="inline">
-              Filter by test
-              <select value={filterTestId} onChange={(e) => setFilterTestId(e.target.value)}>
-                <option value="">All tests</option>
-                {tests.map((t) => (
-                  <option key={t._id} value={t._id}>
-                    {t.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-          <p className="lead">Each submission is linked to a Test id for grading against that key.</p>
-
-          <ul className="sub-list">
-            {submissions.length === 0 && <li className="muted">No submissions yet.</li>}
-            {submissions.map((s) => (
-              <li key={s._id}>
-                <div className="sub-title">
-                  {s.studentName}
-                  {s.studentId ? ` · ${s.studentId}` : ""}
-                </div>
-                <div className="muted small">
-                  {new Date(s.createdAt).toLocaleString()} · Test:{" "}
-                  {s.testId?.name || s.testId || "?"} · {s.answers?.length || 0} answer(s)
-                </div>
-                {(s.answers || []).map((a, i) => (
-                  <div key={i} className="answer-block">
-                    {a.textAnswer && <p className="preview">{a.textAnswer}</p>}
-                    {a.images?.length > 0 && (
-                      <div className="thumbs">
-                        {a.images.map((img) => (
-                          <a key={img.filename} href={uploadUrl(img.path)} target="_blank" rel="noreferrer">
-                            <img src={uploadUrl(img.path)} alt={img.originalName} />
-                          </a>
-                        ))}
-                      </div>
-                    )}
-                    {a.cadFile && (
-                      <a href={uploadUrl(a.cadFile.path)} target="_blank" rel="noreferrer">
-                        CAD: {a.cadFile.originalName}
-                      </a>
-                    )}
-                  </div>
-                ))}
-              </li>
-            ))}
-          </ul>
         </main>
       )}
     </div>

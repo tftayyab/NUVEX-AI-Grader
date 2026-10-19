@@ -97,6 +97,8 @@ try {
 
   const listed = await (await fetch(`${BASE}/api/submissions?testId=${test._id}`)).json();
   assert(listed.length === 1, "filter by testId");
+  assert(listed[0].grades?.length === 0, "ungraded starts empty");
+  assert(listed[0].totalMax === 8, `totalMax=${listed[0].totalMax}`);
   results.push("PASS list submissions by test");
 
   console.log("\n=== SMOKE TEST RESULTS ===");

@@ -10,6 +10,10 @@ export async function getConfig() {
   return handle(await fetch(`${API_BASE}/api/config`));
 }
 
+export async function getGrader() {
+  return handle(await fetch(`${API_BASE}/api/grader`));
+}
+
 export async function listTests() {
   return handle(await fetch(`${API_BASE}/api/tests`));
 }
@@ -45,6 +49,26 @@ export async function createSubmission(formData) {
 export async function listSubmissions(params = {}) {
   const qs = new URLSearchParams(params).toString();
   return handle(await fetch(`${API_BASE}/api/submissions${qs ? `?${qs}` : ""}`));
+}
+
+export async function getSubmission(id) {
+  return handle(await fetch(`${API_BASE}/api/submissions/${id}`));
+}
+
+export async function gradeSubmission(id) {
+  return handle(
+    await fetch(`${API_BASE}/api/submissions/${id}/grade`, {
+      method: "POST",
+    })
+  );
+}
+
+export async function gradeQuestion(submissionId, questionId) {
+  return handle(
+    await fetch(`${API_BASE}/api/submissions/${submissionId}/questions/${questionId}/grade`, {
+      method: "POST",
+    })
+  );
 }
 
 export function uploadUrl(path) {

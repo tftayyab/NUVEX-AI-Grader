@@ -8,6 +8,13 @@ import fs from "fs";
 import { fileURLToPath } from "url";
 import Submission from "./models/Submission.js";
 import Test from "./models/Test.js";
+import {
+  checkOllama,
+  gradeQuestion,
+  graderConfig,
+  summarizeSubmission,
+  upsertGrade,
+} from "./ollamaGrade.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const uploadsDir = path.join(__dirname, "uploads");
@@ -94,7 +101,11 @@ app.get("/api/health", (_req, res) => {
 });
 
 app.get("/api/config", (_req, res) => {
-  res.json({ enableCad: ENABLE_CAD });
+  res.json({ enableCad: ENABLE_CAD, grader: graderConfig() });
+});
+
+app.get("/api/grader", async (_req, res) => {
+  res.json(await checkOllama());
 });
 
 // --- Tests (authored in admin; listed for students) ---
@@ -239,8 +250,8 @@ app.get("/api/submissions", async (req, res) => {
 
     const submissions = await Submission.find(filter)
       .sort({ createdAt: -1 })
-      .populate("testId", "name");
-    res.json(submissions);
+      .populate("testId");
+    res.json(submissions.map(summarizeSubmission));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to load submissions." });
@@ -251,10 +262,82 @@ app.get("/api/submissions/:id", async (req, res) => {
   try {
     const submission = await Submission.findById(req.params.id).populate("testId");
     if (!submission) return res.status(404).json({ error: "Not found." });
-    res.json(submission);
+    res.json(summarizeSubmission(submission));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to load submission." });
+  }
+});
+
+async function gradeSubmissionQuestions(submission, questionIds) {
+  const test = submission.testId;
+  if (!test || !test.questions) throw new Error("Test is missing on this submission.");
+
+  const ids = questionIds?.length
+    ? questionIds.map(String)
+    : test.questions.map((q) => String(q._id));
+
+  let grades = submission.grades || [];
+  const results = [];
+
+  for (const qid of ids) {
+    const question = test.questions.find((q) => String(q._id) === qid);
+    if (!question) throw new Error(`Question ${qid} is not on this test.`);
+    const answer = (submission.answers || []).find((a) => String(a.questionId) === qid);
+    if (!answer) throw new Error(`No student answer for question ${qid}.`);
+
+    try {
+      const grade = await gradeQuestion({ question, answer, uploadsDir });
+      grades = upsertGrade(grades, grade);
+      results.push(grade);
+    } catch (err) {
+      const failed = {
+        questionId: question._id,
+        status: "error",
+        score: 0,
+        maxScore: (question.expectedPoints || []).reduce((s, p) => s + (Number(p.marks) || 0), 0),
+        criterionScores: [],
+        feedback: "",
+        flagForReview: true,
+        flagReason: "Grading failed.",
+        model: "",
+        error: err.message || "Grading failed.",
+        gradedAt: new Date(),
+      };
+      grades = upsertGrade(grades, failed);
+      results.push(failed);
+    }
+  }
+
+  submission.grades = grades;
+  submission.markModified("grades");
+  await submission.save();
+  return results;
+}
+
+app.post("/api/submissions/:id/grade", async (req, res) => {
+  try {
+    const submission = await Submission.findById(req.params.id).populate("testId");
+    if (!submission) return res.status(404).json({ error: "Not found." });
+    await gradeSubmissionQuestions(submission, null);
+    const fresh = await Submission.findById(submission._id).populate("testId");
+    res.json(summarizeSubmission(fresh));
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ error: err.message || "Failed to grade submission." });
+  }
+});
+
+app.post("/api/submissions/:id/questions/:questionId/grade", async (req, res) => {
+  try {
+    const submission = await Submission.findById(req.params.id).populate("testId");
+    if (!submission) return res.status(404).json({ error: "Not found." });
+    await gradeSubmissionQuestions(submission, [req.params.questionId]);
+    const fresh = await Submission.findById(submission._id).populate("testId");
+    res.json(summarizeSubmission(fresh));
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ error: err.message || "Failed to grade question." });
   }
 });
 

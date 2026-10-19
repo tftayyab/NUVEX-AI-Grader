@@ -12,7 +12,7 @@ No API key, no bill, ever. The tradeoffs:
 Setup:
     1. Install Ollama: https://ollama.com/download
     2. In a terminal:
-         ollama pull llama3.1:8b        # for text answers
+         ollama pull llama3.2:3b        # for text answers
          ollama pull llama3.2-vision    # for CAD image review
     3. pip install ollama
     4. python run_grading.py --provider local
@@ -24,7 +24,7 @@ they're talking to.
 import json
 import ollama
 
-DEFAULT_TEXT_MODEL = "llama3.1:8b"
+DEFAULT_TEXT_MODEL = "llama3.2:3b"
 DEFAULT_VISION_MODEL = "llama3.2-vision"
 
 
