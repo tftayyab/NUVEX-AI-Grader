@@ -38,6 +38,7 @@ export default function AdminResults({ tests, submissions, onUpdated, grader, fi
   const [search, setSearch] = useState("");
   const [busy, setBusy] = useState("");
   const [status, setStatus] = useState({ type: "", message: "" });
+  const [gradingProgress, setGradingProgress] = useState(null);
 
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -59,9 +60,10 @@ export default function AdminResults({ tests, submissions, onUpdated, grader, fi
 
   async function run(label, fn) {
     setStatus({ type: "", message: "" });
+    setGradingProgress({ percent: 0, stage: "Starting grading", current: 0, total: 0 });
     setBusy(label);
     try {
-      const updated = await fn();
+      const updated = await fn((progress) => setGradingProgress(progress));
       onUpdated(updated);
       setSelectedId(updated._id);
       const failed = (updated.grades || []).filter((g) => g.status === "error");
@@ -77,6 +79,7 @@ export default function AdminResults({ tests, submissions, onUpdated, grader, fi
       setStatus({ type: "err", message: err.message });
     } finally {
       setBusy("");
+      setGradingProgress(null);
     }
   }
 
@@ -109,6 +112,26 @@ export default function AdminResults({ tests, submissions, onUpdated, grader, fi
             ? `Ollama ready · text ${grader.textModel} · vision ${grader.visionModel}`
             : `Ollama not reachable (${grader.error || "offline"}). Start Ollama, then grade.`}
         </p>
+      )}
+
+      {busy && gradingProgress && (
+        <section className="grading-progress" aria-live="polite" aria-label="Grading progress">
+          <div className="grading-progress-top">
+            <div>
+              <strong>Grading in progress</strong>
+              <p>{gradingProgress.stage || "Working…"}</p>
+            </div>
+            <strong className="grading-percent">{Math.max(0, Math.min(100, Number(gradingProgress.percent) || 0))}%</strong>
+          </div>
+          <div className="grading-track" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.max(0, Math.min(100, Number(gradingProgress.percent) || 0))}>
+            <div className="grading-fill" style={{ width: `${Math.max(0, Math.min(100, Number(gradingProgress.percent) || 0))}%` }} />
+          </div>
+          {gradingProgress.total > 0 && (
+            <small>Question {Math.min(gradingProgress.current || 1, gradingProgress.total)} of {gradingProgress.total} · Progress advances as each question is assessed and saved.</small>
+          )}
+          <small>Elapsed time: {Math.floor((gradingProgress.elapsedSeconds || 0) / 60)}m {(gradingProgress.elapsedSeconds || 0) % 60}s</small>
+          <small className="grading-tip">Image analysis can take several minutes on a CPU-only computer. The percentage advances at completed processing stages; keep this page and the server running.</small>
+        </section>
       )}
 
       <div className="results-stats">
@@ -169,7 +192,7 @@ export default function AdminResults({ tests, submissions, onUpdated, grader, fi
                   <button
                     type="button"
                     disabled={Boolean(busy) || !questions.length}
-                    onClick={() => run("all", () => gradeSubmission(selected._id))}
+                    onClick={() => run("all", (onProgress) => gradeSubmission(selected._id, onProgress))}
                   >
                     {busy === "all" ? "Grading all…" : "Grade all questions"}
                   </button>
@@ -197,7 +220,7 @@ export default function AdminResults({ tests, submissions, onUpdated, grader, fi
                           type="button"
                           className="ghost"
                           disabled={Boolean(busy)}
-                          onClick={() => run(key, () => gradeQuestion(selected._id, q._id))}
+                          onClick={() => run(key, (onProgress) => gradeQuestion(selected._id, q._id, onProgress))}
                         >
                           {busy === key ? "Grading…" : g ? "Re-grade this question" : "Grade this question"}
                         </button>

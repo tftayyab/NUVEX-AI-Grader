@@ -12,6 +12,10 @@ const expectedPointSchema = new mongoose.Schema(
   {
     text: { type: String, required: true },
     marks: { type: Number, required: true, min: 0 },
+    fullMarks: { type: String, default: "" },
+    partialMarks: { type: String, default: "" },
+    zeroMarks: { type: String, default: "" },
+    evidenceToInspect: { type: [String], default: [] },
   },
   { _id: false }
 );

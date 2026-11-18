@@ -5,7 +5,7 @@ import AdminResults from "./AdminResults";
 import AdminTestsLibrary from "./AdminTestsLibrary";
 
 function emptyPoint() {
-  return { text: "", marks: 1 };
+  return { text: "", marks: 1, fullMarks: "", partialMarks: "", zeroMarks: "", evidenceToInspect: "" };
 }
 
 function emptyQuestion() {
@@ -113,6 +113,11 @@ export default function AdminTests() {
           expectedPoints: expectedPoints.map((p) => ({
             text: p.text,
             marks: Number(p.marks),
+            fullMarks: p.fullMarks || "",
+            partialMarks: p.partialMarks || "",
+            zeroMarks: p.zeroMarks || "",
+            evidenceToInspect: String(p.evidenceToInspect || "")
+              .split("\n").map((item) => item.trim()).filter(Boolean),
           })),
         })),
       };
@@ -289,6 +294,28 @@ export default function AdminTests() {
                         >
                           −
                         </button>
+                      </div>
+                    ))}
+                    <p className="muted small">Optional rubric guidance — these details help the AI distinguish full, partial and zero credit. Put one visual item per line in the evidence box.</p>
+                    {q.expectedPoints.map((p, pi) => (
+                      <div className="point-rubric" key={`rubric-${pi}`}>
+                        <strong>{p.text || `Criterion ${pi + 1}`} — {p.marks} marks</strong>
+                        <label>
+                          Full-mark requirements
+                          <textarea rows={2} value={p.fullMarks || ""} onChange={(e) => updatePoint(qi, pi, { fullMarks: e.target.value })} placeholder="What must be demonstrated to earn all marks?" />
+                        </label>
+                        <label>
+                          Partial-mark requirements
+                          <textarea rows={2} value={p.partialMarks || ""} onChange={(e) => updatePoint(qi, pi, { partialMarks: e.target.value })} placeholder="What incomplete but valid evidence earns partial marks?" />
+                        </label>
+                        <label>
+                          Zero-mark conditions
+                          <textarea rows={2} value={p.zeroMarks || ""} onChange={(e) => updatePoint(qi, pi, { zeroMarks: e.target.value })} placeholder="What clearly fails this criterion?" />
+                        </label>
+                        <label>
+                          Evidence to inspect (one item per line)
+                          <textarea rows={2} value={p.evidenceToInspect || ""} onChange={(e) => updatePoint(qi, pi, { evidenceToInspect: e.target.value })} placeholder={"e.g. wheel positions\nfront and side alignment\nwritten dimensions"} />
+                        </label>
                       </div>
                     ))}
                   </div>

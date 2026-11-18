@@ -1,4 +1,6 @@
 import "dotenv/config";
+import dns from "dns";
+dns.setServers(["8.8.8.8", "1.1.1.1"]);
 import express from "express";
 import cors from "cors";
 import mongoose from "mongoose";
@@ -75,6 +77,12 @@ function parseQuestions(raw) {
       .map((p) => ({
         text: String(p.text || "").trim(),
         marks: Number(p.marks),
+        fullMarks: String(p.fullMarks || "").trim(),
+        partialMarks: String(p.partialMarks || "").trim(),
+        zeroMarks: String(p.zeroMarks || "").trim(),
+        evidenceToInspect: Array.isArray(p.evidenceToInspect)
+          ? p.evidenceToInspect.map((item) => String(item || "").trim()).filter(Boolean)
+          : String(p.evidenceToInspect || "").split("\n").map((item) => item.trim()).filter(Boolean),
       }))
       .filter((p) => p.text);
 
@@ -269,25 +277,66 @@ app.get("/api/submissions/:id", async (req, res) => {
   }
 });
 
-async function gradeSubmissionQuestions(submission, questionIds) {
+// In-memory job state keeps the browser request short. The actual grading
+// continues on the server and the UI polls this endpoint for progress.
+const gradingJobs = new Map();
+
+function updateJob(job, patch) {
+  Object.assign(job, patch, { updatedAt: new Date().toISOString() });
+}
+
+function pruneGradingJobs() {
+  const cutoff = Date.now() - 60 * 60 * 1000;
+  for (const [id, job] of gradingJobs) {
+    const stamp = Date.parse(job.updatedAt || job.createdAt || 0);
+    if (stamp < cutoff && job.status !== "running") gradingJobs.delete(id);
+  }
+}
+
+async function gradeSubmissionQuestions(submission, questionIds, job) {
   const test = submission.testId;
   if (!test || !test.questions) throw new Error("Test is missing on this submission.");
 
   const ids = questionIds?.length
     ? questionIds.map(String)
     : test.questions.map((q) => String(q._id));
-
+  const total = ids.length;
   let grades = submission.grades || [];
   const results = [];
 
-  for (const qid of ids) {
+  for (let index = 0; index < ids.length; index += 1) {
+    const qid = ids[index];
     const question = test.questions.find((q) => String(q._id) === qid);
     if (!question) throw new Error(`Question ${qid} is not on this test.`);
     const answer = (submission.answers || []).find((a) => String(a.questionId) === qid);
     if (!answer) throw new Error(`No student answer for question ${qid}.`);
 
+    const questionLabel = `Question ${index + 1} of ${total}`;
+    updateJob(job, {
+      current: index + 1,
+      total,
+      percent: Math.round((index / total) * 100),
+      stage: `${questionLabel}: preparing`,
+      currentQuestion: question.prompt,
+    });
+
     try {
-      const grade = await gradeQuestion({ question, answer, uploadsDir });
+      const grade = await gradeQuestion({
+        question,
+        answer,
+        uploadsDir,
+        onProgress: ({ stage, stageProgress = 0 }) => {
+          const fraction = Math.max(0, Math.min(1, Number(stageProgress) / 100));
+          const percent = Math.min(99, Math.round(((index + fraction) / total) * 100));
+          updateJob(job, {
+            current: index + 1,
+            total,
+            percent,
+            stage: `${questionLabel}: ${stage}`,
+            currentQuestion: question.prompt,
+          });
+        },
+      });
       grades = upsertGrade(grades, grade);
       results.push(grade);
     } catch (err) {
@@ -307,38 +356,96 @@ async function gradeSubmissionQuestions(submission, questionIds) {
       grades = upsertGrade(grades, failed);
       results.push(failed);
     }
+
+    // Save after each question so completed work is not lost if a later
+    // question fails or the server is restarted.
+    submission.grades = grades;
+    submission.markModified("grades");
+    await submission.save();
+    updateJob(job, {
+      current: index + 1,
+      total,
+      percent: Math.round(((index + 1) / total) * 100),
+      stage: `${questionLabel}: saved`,
+      currentQuestion: question.prompt,
+    });
   }
 
-  submission.grades = grades;
-  submission.markModified("grades");
-  await submission.save();
   return results;
+}
+
+function startGradingJob(submissionId, questionIds = null) {
+  pruneGradingJobs();
+  const jobId = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  const job = {
+    id: jobId,
+    status: "running",
+    percent: 0,
+    current: 0,
+    total: questionIds?.length || 0,
+    stage: "Loading submission",
+    currentQuestion: "",
+    error: "",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    result: null,
+  };
+  gradingJobs.set(jobId, job);
+
+  // Deliberately do not await: the API returns immediately and the UI polls.
+  (async () => {
+    try {
+      const submission = await Submission.findById(submissionId).populate("testId");
+      if (!submission) throw new Error("Submission not found.");
+      if (!questionIds?.length) {
+        job.total = submission.testId?.questions?.length || 0;
+      }
+      await gradeSubmissionQuestions(submission, questionIds, job);
+      const fresh = await Submission.findById(submission._id).populate("testId");
+      updateJob(job, {
+        status: "completed",
+        percent: 100,
+        stage: "Grading completed",
+        result: summarizeSubmission(fresh),
+      });
+    } catch (err) {
+      console.error("Background grading job failed:", err);
+      updateJob(job, { status: "failed", error: err.message || "Grading failed." });
+    }
+  })();
+
+  return job;
 }
 
 app.post("/api/submissions/:id/grade", async (req, res) => {
   try {
-    const submission = await Submission.findById(req.params.id).populate("testId");
-    if (!submission) return res.status(404).json({ error: "Not found." });
-    await gradeSubmissionQuestions(submission, null);
-    const fresh = await Submission.findById(submission._id).populate("testId");
-    res.json(summarizeSubmission(fresh));
+    const exists = await Submission.exists({ _id: req.params.id });
+    if (!exists) return res.status(404).json({ error: "Submission not found." });
+    const job = startGradingJob(req.params.id);
+    res.status(202).json({ jobId: job.id, status: job.status });
   } catch (err) {
     console.error(err);
-    res.status(400).json({ error: err.message || "Failed to grade submission." });
+    res.status(400).json({ error: err.message || "Failed to start grading." });
   }
 });
 
 app.post("/api/submissions/:id/questions/:questionId/grade", async (req, res) => {
   try {
-    const submission = await Submission.findById(req.params.id).populate("testId");
-    if (!submission) return res.status(404).json({ error: "Not found." });
-    await gradeSubmissionQuestions(submission, [req.params.questionId]);
-    const fresh = await Submission.findById(submission._id).populate("testId");
-    res.json(summarizeSubmission(fresh));
+    const exists = await Submission.exists({ _id: req.params.id });
+    if (!exists) return res.status(404).json({ error: "Submission not found." });
+    const job = startGradingJob(req.params.id, [req.params.questionId]);
+    res.status(202).json({ jobId: job.id, status: job.status });
   } catch (err) {
     console.error(err);
-    res.status(400).json({ error: err.message || "Failed to grade question." });
+    res.status(400).json({ error: err.message || "Failed to start grading." });
   }
+});
+
+app.get("/api/grading-jobs/:jobId", (req, res) => {
+  const job = gradingJobs.get(req.params.jobId);
+  if (!job) return res.status(404).json({ error: "Grading job not found or expired." });
+  const { id, status, percent, current, total, stage, currentQuestion, error, result } = job;
+  res.json({ id, status, percent, current, total, stage, currentQuestion, error, result });
 });
 
 export { app, ENABLE_CAD, PORT, MONGODB_URI };

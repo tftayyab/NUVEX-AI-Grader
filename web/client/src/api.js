@@ -55,19 +55,33 @@ export async function getSubmission(id) {
   return handle(await fetch(`${API_BASE}/api/submissions/${id}`));
 }
 
-export async function gradeSubmission(id) {
-  return handle(
-    await fetch(`${API_BASE}/api/submissions/${id}/grade`, {
-      method: "POST",
-    })
-  );
+async function waitForGradingJob(jobId, onProgress = () => {}) {
+  const startedAt = Date.now();
+  while (true) {
+    const job = await handle(await fetch(`${API_BASE}/api/grading-jobs/${jobId}`, {
+      cache: "no-store",
+    }));
+    onProgress({ ...job, elapsedSeconds: Math.floor((Date.now() - startedAt) / 1000) });
+    if (job.status === "completed") return job.result;
+    if (job.status === "failed") throw new Error(job.error || "Grading failed.");
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+  }
 }
 
-export async function gradeQuestion(submissionId, questionId) {
-  return handle(
-    await fetch(`${API_BASE}/api/submissions/${submissionId}/questions/${questionId}/grade`, {
-      method: "POST",
-    })
+async function startGrading(url, onProgress) {
+  const started = await handle(await fetch(url, { method: "POST" }));
+  if (!started.jobId) throw new Error("The server did not return a grading job ID.");
+  return waitForGradingJob(started.jobId, onProgress);
+}
+
+export async function gradeSubmission(id, onProgress = () => {}) {
+  return startGrading(`${API_BASE}/api/submissions/${id}/grade`, onProgress);
+}
+
+export async function gradeQuestion(submissionId, questionId, onProgress = () => {}) {
+  return startGrading(
+    `${API_BASE}/api/submissions/${submissionId}/questions/${questionId}/grade`,
+    onProgress
   );
 }
 
