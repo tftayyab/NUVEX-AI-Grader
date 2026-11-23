@@ -420,6 +420,10 @@ async function ollamaChatOnce({
     body: JSON.stringify({
       model,
       stream: false,
+      // Qwen3.5 can spend the generation budget on reasoning and leave
+      // message.content empty. Grading requires a final JSON answer.
+      think: false,
+      keep_alive: "10m",
       format,
       options: {
         temperature: 0,
@@ -427,7 +431,8 @@ async function ollamaChatOnce({
         repeat_penalty: 1.05,
         num_ctx: OLLAMA_NUM_CTX,
         num_thread: OLLAMA_NUM_THREADS,
-        num_predict: 1800,
+        // Keep output bounded on Colab GPUs; 1800 was too tight for full rubrics.
+        num_predict: 2048,
       },
       messages: [
         {
@@ -448,10 +453,20 @@ async function ollamaChatOnce({
   }
 
   const data = await res.json();
-  const content = data?.message?.content;
+  const content = typeof data?.message?.content === "string"
+    ? data.message.content.trim()
+    : "";
 
   if (!content) {
-    throw new Error("Ollama returned an empty response.");
+    const reason = data?.done_reason || "unknown";
+    const thinking = typeof data?.message?.thinking === "string"
+      ? data.message.thinking.trim()
+      : "";
+    throw new Error(
+      `Ollama returned no final content (done_reason=${reason}, ` +
+      `thinking_chars=${thinking.length}, eval_count=${data?.eval_count ?? "unknown"}). ` +
+      "Check the Ollama server log for the underlying generation error."
+    );
   }
 
   return parseJsonLoose(content);
@@ -471,6 +486,11 @@ async function ollamaChat({ model, prompt, images = [] }) {
       throw new Error(`Ollama timed out after ${Math.round(OLLAMA_TIMEOUT_MS / 60000)} minutes. On a CPU-only computer, use qwen3-vl:2b-instruct, reduce image size, or increase OLLAMA_TIMEOUT_MS.`);
     }
     if (/^Ollama \d{3}:/.test(err.message || "") && !/^Ollama 400:/.test(err.message || "")) {
+      throw err;
+    }
+    // An empty response is not a schema-format problem. Repeating the same
+    // multimodal generation can crash/restart the Colab Ollama runner.
+    if (/Ollama returned no final content/.test(err.message || "")) {
       throw err;
     }
     // Retry only for unsupported structured output or malformed JSON.
