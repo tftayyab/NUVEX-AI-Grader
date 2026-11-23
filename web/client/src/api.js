@@ -1,4 +1,4 @@
-const API_BASE = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
+const API_BASE = import.meta.env.VITE_API_URL || "";
 
 async function handle(res) {
   const data = await res.json().catch(() => ({}));
